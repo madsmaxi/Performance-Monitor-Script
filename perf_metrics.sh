@@ -1,32 +1,33 @@
-                    
 #!/usr/bin/env bash
 
-# Hvor CSV-filen skal gemmes
-OUTFILE="resource_stats.csv"
-
-# Lav header hvis filen ikke findes endnu
-if [ ! -f "$OUTFILE" ]; then
-    echo "timestamp;cpu_used_percent;mem_used_mb;mem_total_mb;load1;lo>
-fi
-
-# Evt. justér intervallet her (sekunder)
+TARGETS=("zeek" "rita")
+OUTFILE="tool_usage_metrics.csv"
 INTERVAL=5
 
+if [ ! -f "$OUTFILE" ]; then
+    echo "timestamp;pid;tool;cpu_percent;mem_mb;vsz_kb;rss_kb;cmd" > "$OUTFILE"
+fi
+
 while true; do
-ts=$(date +"%Y-%m-%d %H:%M:%S")
+    ts=$(date +"%Y-%m-%d %H:%M:%S")
 
-    # CPU: tag "idle" fra top og regn 100 - idle
-    cpu_used=$(top -bn1 | grep "Cpu(s)" | sed "s/,/./g" \
-        | awk '{for(i=1;i<=NF;i++){if($i ~ /id/){idle=$(i-1);}}} END {>
+    for tool in "${TARGETS[@]}"; do
+        PIDS=$(pgrep "$tool")
 
-    # RAM i MB
-    read mem_total mem_used _ < <(free -m | awk '/^Mem:/{print $2" "$3>
+        for pid in $PIDS; do
 
-    # Load average 1, 5 og 15 min
-    read load1 load5 load15 _ < <(awk '{print $1" "$2" "$3" "$4}' /pro>
+            stats=$(ps -p "$pid" -o %cpu,%mem,rss,cmd --no-headers)
 
-    # Skriv til CSV
-    echo "$ts;$cpu_used;$mem_used;$mem_total;$load1;$load5;$load15" >>>
+            cpu=$(echo "$stats" | awk '{print $1}')        # CPU percent
+            mem_percent=$(echo "$stats" | awk '{print $2}') # RAM percent of total system memory
+            rss=$(echo "$stats" | awk '{print $3}')         # memory in KB
+            cmd=$(echo "$stats" | cut -d " " -f4-)          # extract command
+
+            mem_mb=$(awk "BEGIN {print $rss/1024}")         # convert KB → MB
+
+            echo "$ts;$pid;$tool;$cpu;$mem_mb;$mem_percent;$cmd" >> "$OUTFILE"
+        done
+    done
 
     sleep "$INTERVAL"
 done
